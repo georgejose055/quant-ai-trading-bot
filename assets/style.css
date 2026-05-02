@@ -1,0 +1,159 @@
+/* ── Base & Font ──────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif !important;
+    background-color: #0d0d1a !important;
+    color: #e2e8f0 !important;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* ── Prevent Stretching ───────────────────────────────────────────────────── */
+.container {
+    max-width: 1400px !important;
+    margin: 0 auto !important;
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+}
+
+.row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    width: 100% !important;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1a2e; }
+::-webkit-scrollbar-thumb { background: #7c3aed; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #9f5fff; }
+
+/* ── Graphs ───────────────────────────────────────────────────────────────── */
+.dash-graph {
+    width: 100% !important;
+    overflow: hidden !important;
+    border-radius: 12px !important;
+    border: 1px solid #2d2d44;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    transition: border 0.3s ease;
+    margin-bottom: 4px;
+}
+
+.dash-graph:hover {
+    border-color: #7c3aed;
+}
+
+.js-plotly-plot,
+.js-plotly-plot .plotly,
+.js-plotly-plot .svg-container {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* ── KPI Cards ────────────────────────────────────────────────────────────── */
+.card {
+    background-color: #1e1e2e !important;
+    border: 1px solid #2d2d44 !important;
+    border-radius: 12px !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+}
+
+.card:hover {
+    border-color: #7c3aed !important;
+    transform: translateY(-3px) !important;
+    box-shadow: 0 8px 30px rgba(124,58,237,0.25) !important;
+}
+
+.card-body {
+    padding: 18px 20px !important;
+}
+
+/* ── Dropdowns ────────────────────────────────────────────────────────────── */
+.Select-control {
+    background-color: #1e1e2e !important;
+    border: 1px solid #7c3aed !important;
+    border-radius: 8px !important;
+}
+
+.Select-menu-outer {
+    background-color: #1e1e2e !important;
+    border: 1px solid #7c3aed !important;
+    border-radius: 8px !important;
+    z-index: 9999 !important;
+}
+
+.Select-option {
+    background-color: #1e1e2e !important;
+    color: #e2e8f0 !important;
+}
+
+.Select-option:hover,
+.Select-option.is-focused {
+    background-color: #7c3aed !important;
+    color: #fff !important;
+}
+
+/* ── Run Button ───────────────────────────────────────────────────────────── */
+#run-btn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 25px rgba(124,58,237,0.6) !important;
+    opacity: 0.92 !important;
+}
+
+#run-btn:active {
+    transform: translateY(0px) !important;
+}
+
+/* ── DataTable ────────────────────────────────────────────────────────────── */
+.dash-table-container {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    border: 1px solid #2d2d44 !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+    width: 100% !important;
+}
+
+.dash-spreadsheet-container {
+    width: 100% !important;
+    overflow-x: auto !important;
+}
+
+.dash-spreadsheet-container .dash-spreadsheet-inner th {
+    background-color: #7c3aed !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+.dash-spreadsheet-container .dash-spreadsheet-inner td {
+    background-color: #1e1e2e !important;
+    color: #e2e8f0 !important;
+    border-bottom: 1px solid #2d2d44 !important;
+    border-left: none !important;
+    border-right: none !important;
+    transition: background 0.2s ease;
+}
+
+.dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
+    background-color: #2a2a3e !important;
+    color: #a78bfa !important;
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .container { padding-left: 12px !important; padding-right: 12px !important; }
+    h2 { font-size: 1.3rem !important; }
+    .card-body { padding: 12px !important; }
+    .dash-graph { margin-bottom: 12px; }
+}
+
+@media (max-width: 480px) {
+    h2 { font-size: 1.1rem !important; }
+}
