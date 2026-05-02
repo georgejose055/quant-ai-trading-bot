@@ -8,30 +8,50 @@ from sklearn.preprocessing import StandardScaler
 
 # ─── Fetch Data ───────────────────────────────────────────────────────────────
 def fetch_data(ticker: str, period: str = "1y") -> pd.DataFrame:
-    df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
+    raw = yf.download(ticker, period=period, auto_adjust=True, progress=False)
 
-    # Fix MultiIndex — detect which level contains OHLCV names
+    # ── Direct key access (works on ALL yfinance versions) ────────────────
+    try:
+        df = pd.DataFrame({
+            "Open":   raw["Open"].squeeze(),
+            "High":   raw["High"].squeeze(),
+            "Low":    raw["Low"].squeeze(),
+            "Close":  raw["Close"].squeeze(),
+            "Volume": raw["Volume"].squeeze(),
+        }, index=raw.index)
+        df = df.apply(pd.to_numeric, errors="coerce")
+        df.dropna(inplace=True)
+        if len(df) < 60:
+            raise ValueError(f"Not enough data for {ticker} (only {len(df)} rows)")
+        return df
+    except KeyError:
+        pass
+
+    # ── Fallback: MultiIndex level detection ──────────────────────────────
+    df = raw.copy()
     if isinstance(df.columns, pd.MultiIndex):
-        for level in range(df.columns.nlevels):
-            level_vals = df.columns.get_level_values(level).tolist()
-            if any(c in level_vals for c in ["Close", "close", "CLOSE"]):
-                df.columns = df.columns.get_level_values(level)
-                break
-        else:
+        l0 = [str(v).strip() for v in df.columns.get_level_values(0).unique()]
+        l1 = [str(v).strip() for v in df.columns.get_level_values(1).unique()]
+        ohlcv = {"Open", "High", "Low", "Close", "Volume"}
+        if any(v in ohlcv for v in l0):
             df.columns = df.columns.get_level_values(0)
+        elif any(v in ohlcv for v in l1):
+            df.columns = df.columns.get_level_values(1)
+        else:
+            # Last resort: alphabetical rename (yfinance returns C,H,L,O,V order)
+            df.columns = df.columns.droplevel(1)
+            if len(df.columns) == 5:
+                df.columns = ["Close", "High", "Low", "Open", "Volume"]
 
-    # Normalize column names to Title Case
     df.columns = [str(c).strip().title() for c in df.columns]
     df = df.rename(columns={"Adj Close": "Close", "Adj_Close": "Close"})
-
-    # Drop duplicate columns
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Validate & flatten nested columns
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         if col not in df.columns:
             raise ValueError(
-                f"Missing column: {col}. Available: {df.columns.tolist()}"
+                f"Missing column '{col}' for {ticker}. "
+                f"Available: {df.columns.tolist()}"
             )
         if isinstance(df[col], pd.DataFrame):
             df[col] = df[col].iloc[:, 0]
@@ -44,8 +64,8 @@ def fetch_data(ticker: str, period: str = "1y") -> pd.DataFrame:
 
 # ─── Indicator Helpers ────────────────────────────────────────────────────────
 def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    series = series.squeeze()
-    delta  = series.diff()
+    s      = series.squeeze()
+    delta  = s.diff()
     gain   = delta.clip(lower=0).rolling(period).mean()
     loss   = (-delta.clip(upper=0)).rolling(period).mean()
     rs     = gain / loss
@@ -53,18 +73,18 @@ def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
 
 
 def compute_macd(series: pd.Series):
-    series = series.squeeze()
-    ema12  = series.ewm(span=12, adjust=False).mean()
-    ema26  = series.ewm(span=26, adjust=False).mean()
+    s      = series.squeeze()
+    ema12  = s.ewm(span=12, adjust=False).mean()
+    ema26  = s.ewm(span=26, adjust=False).mean()
     macd   = ema12 - ema26
     signal = macd.ewm(span=9, adjust=False).mean()
     return macd, signal
 
 
 def compute_bollinger(series: pd.Series, window: int = 20):
-    series = series.squeeze()
-    ma     = series.rolling(window).mean()
-    std    = series.rolling(window).std()
+    s   = series.squeeze()
+    ma  = s.rolling(window).mean()
+    std = s.rolling(window).std()
     return ma + 2 * std, ma - 2 * std
 
 
@@ -95,11 +115,11 @@ def compute_obv(df: pd.DataFrame) -> pd.Series:
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # Fix MultiIndex if still present
+    # Ensure clean flat columns
     if isinstance(df.columns, pd.MultiIndex):
         for level in range(df.columns.nlevels):
-            level_vals = df.columns.get_level_values(level).tolist()
-            if any(c in level_vals for c in ["Close", "close", "CLOSE"]):
+            vals = [str(v).strip() for v in df.columns.get_level_values(level)]
+            if "Close" in vals:
                 df.columns = df.columns.get_level_values(level)
                 break
         else:
@@ -109,12 +129,10 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns={"Adj Close": "Close", "Adj_Close": "Close"})
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Flatten nested DataFrame columns
     for col in df.columns:
         if isinstance(df[col], pd.DataFrame):
             df[col] = df[col].iloc[:, 0]
 
-    # Ensure numeric
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         df[col] = pd.to_numeric(df[col].squeeze(), errors="coerce")
     df.dropna(subset=["Open", "High", "Low", "Close", "Volume"], inplace=True)
@@ -209,7 +227,6 @@ def train_model(df: pd.DataFrame):
 
     X = df[features].copy()
 
-    # Flatten any nested DataFrame columns
     if isinstance(X.columns, pd.MultiIndex):
         X.columns = X.columns.get_level_values(0)
     for col in X.columns:
@@ -219,7 +236,6 @@ def train_model(df: pd.DataFrame):
     X = X.astype(float)
     y = df["Target"].astype(int)
 
-    # Time-based split — no shuffle to prevent future leakage
     split   = int(len(df) * 0.80)
     X_train = X.iloc[:split]
     X_test  = X.iloc[split:]
@@ -251,7 +267,6 @@ def get_signals(df: pd.DataFrame, model, features: list, scaler) -> pd.DataFrame
     df = df.copy()
     X  = df[features].copy()
 
-    # Safety flatten
     if isinstance(X.columns, pd.MultiIndex):
         X.columns = X.columns.get_level_values(0)
     for col in X.columns:
