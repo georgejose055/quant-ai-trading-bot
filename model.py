@@ -2,28 +2,32 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import StandardScaler
 
 
 # ─── Fetch Data ───────────────────────────────────────────────────────────────
 def fetch_data(ticker: str, period: str = "1y") -> pd.DataFrame:
-    df = yf.download(ticker, period=period, auto_adjust=True,
-                     progress=False, group_by="ticker")
+    df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
 
-    # Flatten MultiIndex regardless of how yfinance returns it
+    # Fix MultiIndex — detect which level contains OHLCV names
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+        for level in range(df.columns.nlevels):
+            level_vals = df.columns.get_level_values(level).tolist()
+            if any(c in level_vals for c in ["Close", "close", "CLOSE"]):
+                df.columns = df.columns.get_level_values(level)
+                break
+        else:
+            df.columns = df.columns.get_level_values(0)
 
-    # Normalize column names
+    # Normalize column names to Title Case
     df.columns = [str(c).strip().title() for c in df.columns]
     df = df.rename(columns={"Adj Close": "Close", "Adj_Close": "Close"})
 
-    # Drop duplicate columns if any
+    # Drop duplicate columns
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Validate & flatten any nested DataFrame columns
+    # Validate & flatten nested columns
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         if col not in df.columns:
             raise ValueError(
@@ -49,11 +53,11 @@ def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
 
 
 def compute_macd(series: pd.Series):
-    series  = series.squeeze()
-    ema12   = series.ewm(span=12, adjust=False).mean()
-    ema26   = series.ewm(span=26, adjust=False).mean()
-    macd    = ema12 - ema26
-    signal  = macd.ewm(span=9, adjust=False).mean()
+    series = series.squeeze()
+    ema12  = series.ewm(span=12, adjust=False).mean()
+    ema26  = series.ewm(span=26, adjust=False).mean()
+    macd   = ema12 - ema26
+    signal = macd.ewm(span=9, adjust=False).mean()
     return macd, signal
 
 
@@ -91,33 +95,39 @@ def compute_obv(df: pd.DataFrame) -> pd.Series:
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # ── Fix MultiIndex columns if still present ───────────────────────────
+    # Fix MultiIndex if still present
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+        for level in range(df.columns.nlevels):
+            level_vals = df.columns.get_level_values(level).tolist()
+            if any(c in level_vals for c in ["Close", "close", "CLOSE"]):
+                df.columns = df.columns.get_level_values(level)
+                break
+        else:
+            df.columns = df.columns.get_level_values(0)
+
     df.columns = [str(c).strip().title() for c in df.columns]
     df = df.rename(columns={"Adj Close": "Close", "Adj_Close": "Close"})
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # ── Flatten any nested DataFrame columns ──────────────────────────────
+    # Flatten nested DataFrame columns
     for col in df.columns:
         if isinstance(df[col], pd.DataFrame):
             df[col] = df[col].iloc[:, 0]
 
-    # ── Ensure all columns are numeric Series ─────────────────────────────
+    # Ensure numeric
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         df[col] = pd.to_numeric(df[col].squeeze(), errors="coerce")
-
     df.dropna(subset=["Open", "High", "Low", "Close", "Volume"], inplace=True)
 
     close = df["Close"].squeeze()
 
     # ── Returns ───────────────────────────────────────────────────────────
-    df["Return"]   = close.pct_change()
-    df["Return_2"] = close.pct_change(2)
-    df["Return_5"] = close.pct_change(5)
-    df["Return_10"]= close.pct_change(10)
-    df["ROC_5"]    = close.pct_change(5)  * 100
-    df["ROC_10"]   = close.pct_change(10) * 100
+    df["Return"]    = close.pct_change()
+    df["Return_2"]  = close.pct_change(2)
+    df["Return_5"]  = close.pct_change(5)
+    df["Return_10"] = close.pct_change(10)
+    df["ROC_5"]     = close.pct_change(5)  * 100
+    df["ROC_10"]    = close.pct_change(10) * 100
 
     # ── Moving Averages ───────────────────────────────────────────────────
     df["MA5"]  = close.rolling(5).mean()
@@ -150,7 +160,9 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # ── Bollinger Bands ───────────────────────────────────────────────────
     df["BB_Upper"], df["BB_Lower"] = compute_bollinger(close)
     df["BB_Width"]    = (df["BB_Upper"] - df["BB_Lower"]) / (df["MA20"] + 1e-9)
-    df["BB_Position"] = (close - df["BB_Lower"]) / (df["BB_Upper"] - df["BB_Lower"] + 1e-9)
+    df["BB_Position"] = (close - df["BB_Lower"]) / (
+        df["BB_Upper"] - df["BB_Lower"] + 1e-9
+    )
 
     # ── ATR ───────────────────────────────────────────────────────────────
     df["ATR"] = compute_atr(df)
@@ -164,11 +176,13 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["Williams_R"] = -100 * (high14 - close) / (high14 - low14 + 1e-9)
 
     # ── High/Low Channel ──────────────────────────────────────────────────
-    df["High_5"]     = df["High"].rolling(5).max()
-    df["Low_5"]      = df["Low"].rolling(5).min()
-    df["Channel_Pos"]= (close - df["Low_5"]) / (df["High_5"] - df["Low_5"] + 1e-9)
+    df["High_5"]      = df["High"].rolling(5).max()
+    df["Low_5"]       = df["Low"].rolling(5).min()
+    df["Channel_Pos"] = (close - df["Low_5"]) / (
+        df["High_5"] - df["Low_5"] + 1e-9
+    )
 
-    # ── Target: Strong moves only (±2% over 3 days) ───────────────────────
+    # ── Target: ±2% move over next 3 days ────────────────────────────────
     future_return = (close.shift(-3) - close) / close
     df["Target"]  = np.where(future_return > 0.02, 1, 0)
     df = df[future_return.abs() > 0.02]
@@ -193,19 +207,19 @@ def train_model(df: pd.DataFrame):
         "Williams_R", "Channel_Pos"
     ]
 
-    X = df[features].astype(float)
-    y = df["Target"].astype(int)
+    X = df[features].copy()
 
-    # Ensure no MultiIndex leaks into X
+    # Flatten any nested DataFrame columns
     if isinstance(X.columns, pd.MultiIndex):
         X.columns = X.columns.get_level_values(0)
-
-    # Flatten any Series that became DataFrames
     for col in X.columns:
         if isinstance(X[col], pd.DataFrame):
             X[col] = X[col].iloc[:, 0]
 
-    # Time-based split — no shuffle to avoid future leakage
+    X = X.astype(float)
+    y = df["Target"].astype(int)
+
+    # Time-based split — no shuffle to prevent future leakage
     split   = int(len(df) * 0.80)
     X_train = X.iloc[:split]
     X_test  = X.iloc[split:]
@@ -235,7 +249,7 @@ def train_model(df: pd.DataFrame):
 # ─── Generate Signals ─────────────────────────────────────────────────────────
 def get_signals(df: pd.DataFrame, model, features: list, scaler) -> pd.DataFrame:
     df = df.copy()
-    X  = df[features].astype(float)
+    X  = df[features].copy()
 
     # Safety flatten
     if isinstance(X.columns, pd.MultiIndex):
@@ -244,7 +258,7 @@ def get_signals(df: pd.DataFrame, model, features: list, scaler) -> pd.DataFrame
         if isinstance(X[col], pd.DataFrame):
             X[col] = X[col].iloc[:, 0]
 
-    X = scaler.transform(X)
+    X = scaler.transform(X.astype(float))
     df["Prediction"] = model.predict(X)
     df["Signal"]     = df["Prediction"].map({1: "BUY 🟢", 0: "SELL 🔴"})
     return df
